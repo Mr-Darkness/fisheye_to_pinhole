@@ -142,7 +142,11 @@ target_link_libraries(fisheye_to_pinhole
 ${OpenCV_LIBS}
 ${catkin_LIBRARIES}
 )
-
+add_executable(fisheye_to_pinhole_solo src/fisheye_to_pinhole_solo.cpp)
+target_link_libraries(fisheye_to_pinhole_solo 
+${OpenCV_LIBS}
+${catkin_LIBRARIES}
+)
 add_executable(save_img src/save_img.cpp)
 target_link_libraries(save_img 
 ${OpenCV_LIBS}

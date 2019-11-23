@@ -15,11 +15,10 @@ projection_parameters:
    u0: 3.7368942301493990e+02
    v0: 2.4953033700585644e+02
 
-pinhole_image_width: 376
+pinhole_image_width: 752
 pinhole_image_height: 480
 pinhole_fx: 188
 pinhole_fy: 188
-
 fisheye_camera_T: [1, 0, 0, 0,
                   0, 1, 0, 0,
                   0, 0, 1, 0]

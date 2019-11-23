@@ -84,27 +84,22 @@ Eigen::Vector2d ProjPinholeToFisheye(Eigen::Vector2d pt, Eigen::Matrix3d pinhole
 }
 
 // Since it's not a good habit to use global variables, it's convenient for a simple node use.
-Mat left_mapX, left_mapY, right_mapX, right_mapY;
-ros::Publisher left_img_pub, right_img_pub, left_cam_info_pub, right_cam_info_pub;
-sensor_msgs::CameraInfo left_cam_info, right_cam_info;
+Mat mapX, mapY;
+ros::Publisher img_pub, cam_info_pub;
+sensor_msgs::CameraInfo cam_info;
 
 void Callback(const sensor_msgs::Image::ConstPtr& img_ptr)
 {
     cv_bridge::CvImageConstPtr ros_img = cv_bridge::toCvShare(img_ptr);
-    Mat left_img, right_img;
-    remap(ros_img->image, left_img, left_mapX, left_mapY, INTER_LINEAR);
-    remap(ros_img->image, right_img, right_mapX, right_mapY, INTER_LINEAR);
+    Mat img;
+    remap(ros_img->image, img, mapX, mapY, INTER_LINEAR);
 
-    sensor_msgs::ImagePtr left_img_msg = cv_bridge::CvImage(img_ptr->header, "mono8", left_img).toImageMsg();
-    sensor_msgs::ImagePtr right_img_msg = cv_bridge::CvImage(img_ptr->header, "mono8", right_img).toImageMsg();
-    
-    left_cam_info.header = img_ptr->header;
-    right_cam_info.header = img_ptr->header;
+    sensor_msgs::ImagePtr img_msg = cv_bridge::CvImage(img_ptr->header, "mono8", img).toImageMsg();
 
-    left_img_pub.publish(left_img_msg);
-    left_cam_info_pub.publish(left_cam_info);
-    right_img_pub.publish(right_img_msg);
-    right_cam_info_pub.publish(right_cam_info);
+    cam_info.header = img_ptr->header;
+
+    img_pub.publish(img_msg);
+    cam_info_pub.publish(cam_info);
 }
 
 int main(int argc, char** argv)
@@ -162,69 +157,42 @@ int main(int argc, char** argv)
     pinhole_k(1, 2) = pinhole_image_height / 2;
     pinhole_k(2, 2) = 1;
 
-    left_mapX = Mat::zeros(pinhole_image_height, pinhole_image_width, CV_32F);
-    left_mapY = Mat::zeros(pinhole_image_height, pinhole_image_width, CV_32F);
-    right_mapX = Mat::zeros(pinhole_image_height, pinhole_image_width, CV_32F);
-    right_mapY = Mat::zeros(pinhole_image_height, pinhole_image_width, CV_32F);
+    mapX = Mat::zeros(pinhole_image_height, pinhole_image_width, CV_32F);
+    mapY = Mat::zeros(pinhole_image_height, pinhole_image_width, CV_32F);
 
-    Eigen::AngleAxisd left_angle(M_PI / 4, Eigen::Vector3d(0,-1,0));
-    Eigen::Matrix3d left_R = left_angle.matrix();
-    cout << left_R << endl;
-    Eigen::AngleAxisd right_angle(M_PI/ 4, Eigen::Vector3d(0,1,0));
-    Eigen::Matrix3d right_R = right_angle.matrix();
+    Eigen::AngleAxisd angle(0, Eigen::Vector3d(0,-1,0));
+    Eigen::Matrix3d R = angle.matrix();
+    cout << R << endl;
 
-    left_cam_info.height = pinhole_image_height;
-    left_cam_info.width = pinhole_image_width;
+    cam_info.height = pinhole_image_height;
+    cam_info.width = pinhole_image_width;
     for(int i = 0; i < 9; i++)
-        left_cam_info.K[i] = pinhole_k(i);
-    left_cam_info.D = vector<double>(4, 0);    // No distortion
-    Eigen::MatrixXd left_T(3, 4), left_proj(3, 4);
+        cam_info.K[i] = pinhole_k(i);
+    cam_info.D = vector<double>(4, 0);    // No distortion
+    Eigen::MatrixXd T(3, 4), proj(3, 4);
 
-    left_T.block(0, 0, 3, 3) = left_R * fisheye_camera_T.block(0, 0, 3, 3);
-    left_T.block(0, 3, 3, 1) = fisheye_camera_T.block(0, 3, 3, 1);
-    left_proj = pinhole_k * left_T; // P = K * T
+    T.block(0, 0, 3, 3) = R * fisheye_camera_T.block(0, 0, 3, 3);
+    T.block(0, 3, 3, 1) = fisheye_camera_T.block(0, 3, 3, 1);
+    proj = pinhole_k * T; // P = K * T
     for(int i = 0; i < 9; i++)
-        left_cam_info.R[i] = left_T(i); 
+        cam_info.R[i] = T(i); 
     for(int i = 0; i < 12; i++)
-        left_cam_info.P[i] = left_proj(i);
-    
-    right_cam_info.height = pinhole_image_height;
-    right_cam_info.width = pinhole_image_width;
-    for(int i = 0; i < 9; i++)
-        right_cam_info.K[i] = pinhole_k(i);
-    right_cam_info.D = vector<double>(4, 0);    // No distortion
-
-    Eigen::MatrixXd right_T(3, 4), right_proj(3, 4);
-    right_T.block(0, 0, 3, 3) = right_R * fisheye_camera_T.block(0, 0, 3, 3);
-    right_T.block(0, 3, 3, 1) = fisheye_camera_T.block(0, 3, 3, 1);
-    right_proj = pinhole_k * right_T; // P = K * T
-    for(int i = 0; i < 9; i++)
-        right_cam_info.R[i] = right_T(i); 
-    for(int i = 0; i < 12; i++)
-        right_cam_info.P[i] = right_proj(i);
+        cam_info.P[i] = proj(i);
 
     // Start construct remapping relationship.
     for(int i = 0; i < pinhole_image_height; i++)
         for(int j = 0; j < pinhole_image_width; j++)
         {
-            Eigen::Vector2d left_map_pt = ProjPinholeToFisheye(Eigen::Vector2d(j, i), pinhole_k, left_R, Eigen::Vector3d::Zero(), intrins);
-
-            left_mapX.at<float>(i, j) = left_map_pt.x();
-            left_mapY.at<float>(i, j) = left_map_pt.y();
-
-            Eigen::Vector2d right_map_pt = ProjPinholeToFisheye(Eigen::Vector2d(j, i), pinhole_k, right_R, Eigen::Vector3d::Zero(), intrins);
-
-            right_mapX.at<float>(i, j) = right_map_pt.x();
-            right_mapY.at<float>(i, j) = right_map_pt.y();
+            Eigen::Vector2d map_pt = ProjPinholeToFisheye(Eigen::Vector2d(j, i), pinhole_k, R, Eigen::Vector3d::Zero(), intrins);
+            mapX.at<float>(i, j) = map_pt.x();
+            mapY.at<float>(i, j) = map_pt.y();
         }
 
     ROS_INFO("Finish computing mapping relations. Start subscribe image topics.");
 
     ros::Subscriber sub = nh.subscribe(camera_topic, 1, &Callback);
-    left_img_pub = nh.advertise<sensor_msgs::Image>("left_img", 1);
-    right_img_pub = nh.advertise<sensor_msgs::Image>("right_img", 1);
-    left_cam_info_pub = nh.advertise<sensor_msgs::CameraInfo>("left_cam_info", 1);
-    right_cam_info_pub = nh.advertise<sensor_msgs::CameraInfo>("right_cam_info", 1);
+    img_pub = nh.advertise<sensor_msgs::Image>("img", 1);
+    cam_info_pub = nh.advertise<sensor_msgs::CameraInfo>("cam_info", 1);
     ros::spin();
     return 0;
 }
